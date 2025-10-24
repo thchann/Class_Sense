@@ -19,7 +19,7 @@ CAMERA_INDEX = 1
 FPS = 30
 BUFFER_FRAMES = 9
 FRAME_W, FRAME_H = 224, 224
-MARLIN_MODEL_PATH = "/Users/theodorechan/external_libs/MARLIN/.marlin/marlin_vit_base_ytf.encoder.pt"
+MARLIN_MODEL_PATH = "/Users/theodorechan/external_libs/MARLIN/marlin_weights/marlin_vit_base_ytf.encoder.pt"
 CHECKPOINT_PATH = "/Users/theodorechan/external_libs/engagenet_baselines/checkpoints/fusion_best.keras"
 TEMP_MARLIN_CLIP = ROOT / "temp_marlin.avi"
 MAX_QUEUE = 1
@@ -42,11 +42,11 @@ prediction_queue = Queue()
 last_pred = None
 noface_streak = 0
 
-print("▶ Loading MARLIN...")
+print("Loading MARLIN...")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 marlin_model = Marlin.from_file("marlin_vit_base_ytf", MARLIN_MODEL_PATH).to(device)
 
-print("▶ Loading EngageNet...")
+print("Loading EngageNet...")
 engage_model = tf_load_model(CHECKPOINT_PATH, compile=False)
 print(engage_model.summary())
 
@@ -208,7 +208,7 @@ def live_loop():
     global last_pred, noface_streak, face_detector, det_conf
     cap = cv2.VideoCapture(CAMERA_INDEX)
     frames = []
-    print("✅ Live prediction started. Press 'q' to quit.")
+    print("Live prediction started. Press 'q' to quit.")
 
     while True:
         ret, frame = cap.read()
@@ -252,7 +252,7 @@ def live_loop():
             cls, conf, avg_pred, entropy, face_hits = last_pred
             if (noface_streak >= NOFACE_CONSEC_FOR_UI) or isinstance(cls, str):
                 pred_history.clear()
-                draw_bottom_status(frame, "🚫 No face. Holding last prediction — Class: None")
+                draw_bottom_status(frame, "No face. Holding last prediction — Class: None")
                 cv2.putText(frame, "No face detected", (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,0,255), 2)
             else:
                 draw_dashboard(frame, avg_pred, entropy, face_hits, cls)

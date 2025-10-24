@@ -1,5 +1,4 @@
 # Ignore large data files and model checkpoints
-data/
 marlin_openface_combination.py
 
 # Ignore virtual environments
