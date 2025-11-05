@@ -1,5 +1,7 @@
 # Ignore large data files and model checkpoints
 marlin_openface_combination.py
+data/Xy_fusion.npy
+marlin_vit_base_ytf.encoder.pt
 
 # Ignore virtual environments
 tfenv/
