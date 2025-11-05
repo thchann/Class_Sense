@@ -3,6 +3,7 @@ marlin_openface_combination.py
 
 # Ignore virtual environments
 tfenv/
+venv/
 
 # Ignore all checkpoints by default
 checkpoints/*
@@ -22,3 +23,8 @@ __pycache__/
 *.log
 *.tmp
 .marlin/
+models/**/*.pt
+models/**/*.pth
+models/**/*.h5
+models/**/*.npz
+checkpoints/**/*.keras

@@ -1,0 +1,12 @@
+services:
+  setup:
+    build: .
+    image: engagenet:cpu
+    volumes:
+      - ./venv:/venv
+    command: >
+      sh -c "
+        mkdir -p /venv/lib/python3.10/site-packages &&
+        python -m pip install --target=/venv/lib/python3.10/site-packages --no-cache-dir -r /app/requirements.docker.txt &&
+        echo 'Python packages installed to /venv successfully'
+      "

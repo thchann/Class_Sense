@@ -1,4 +1,4 @@
-import os, sys, cv2, torch, numpy as np, mediapipe as mp, warnings, logging
+import os, sys, cv2, torch, numpy as np, mediapipe as mp, warnings, logging, time
 from marlin_pytorch import Marlin
 from tensorflow.keras.models import load_model as tf_load_model
 from threading import Thread
@@ -19,8 +19,14 @@ CAMERA_INDEX = 1
 FPS = 30
 BUFFER_FRAMES = 9
 FRAME_W, FRAME_H = 224, 224
-MARLIN_MODEL_PATH = "/Users/theodorechan/external_libs/MARLIN/marlin_weights/marlin_vit_base_ytf.encoder.pt"
-CHECKPOINT_PATH = "/Users/theodorechan/external_libs/engagenet_baselines/checkpoints/fusion_best.keras"
+MARLIN_MODEL_PATH = os.getenv(
+    "MARLIN_MODEL_PATH",
+    str(ROOT / "models" / "marlin" / "marlin_vit_base_ytf.encoder.pt")
+)
+CHECKPOINT_PATH = os.getenv(
+    "CHECKPOINT_PATH",
+    str(ROOT / "checkpoints" / "fusion_best.keras")
+)
 TEMP_MARLIN_CLIP = ROOT / "temp_marlin.avi"
 MAX_QUEUE = 1
 
@@ -29,6 +35,37 @@ ALPHA_OPENFACE = 0.25
 MIN_MESH_NORM = 1e-4
 FACE_MIN_FRAMES = 2
 NOFACE_CONSEC_FOR_UI = 3
+
+# Flexible video source and display detection
+VIDEO_SOURCE = os.getenv("VIDEO_SOURCE")
+if VIDEO_SOURCE is None:
+    VIDEO_SOURCE = CAMERA_INDEX
+else:
+    try:
+        VIDEO_SOURCE = int(VIDEO_SOURCE)  # Try as camera index
+    except ValueError:
+        pass  # Use as URL/path string
+
+HEADLESS_ENV = os.getenv("HEADLESS", "").lower()
+
+def can_use_gui():
+    """Check if GUI display is available"""
+    if HEADLESS_ENV == "1" or HEADLESS_ENV == "true":
+        return False
+    # On macOS/Windows running natively, GUI should work without DISPLAY
+    # DISPLAY is only needed for X11 forwarding in Docker/Linux
+    try:
+        # Test if we can actually open a window
+        test_img = np.zeros((100, 100, 3), dtype=np.uint8)
+        cv2.namedWindow("_test", cv2.WINDOW_NORMAL)
+        cv2.imshow("_test", test_img)
+        cv2.waitKey(1)
+        cv2.destroyWindow("_test")
+        return True
+    except Exception:
+        return False
+
+USE_GUI = can_use_gui()
 
 USE_MARLIN = True
 USE_OPENFACE = True
@@ -56,7 +93,7 @@ def make_det(conf):
 face_detector = make_det(det_conf)
 face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=False, max_num_faces=1, refine_landmarks=True, min_detection_confidence=0.35)
 
-CLASS_NAMES = ["Disengaged", "Bored", "Attentive", "Confused"]
+CLASS_NAMES = ["Disengaged", "Attentive", "Bored", "Confused"]
 CLASS_REMAP = [2, 1, 0, 3]
 
 def purge_queue(q: Queue):
@@ -162,6 +199,17 @@ def draw_bottom_status(frame, text):
     cv2.addWeighted(overlay[y1:y2, 0:w], 0.5, frame[y1:y2, 0:w], 0.5, 0, frame[y1:y2, 0:w])
     cv2.putText(frame, text, (16, y2 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255,255,255), 2)
 
+def print_terminal_dashboard(cls, conf, avg_pred, entropy, face_hits):
+    """Print dashboard info to terminal (headless mode)"""
+    if isinstance(cls, str):
+        status = f"⚠️  {cls}"
+    else:
+        status = f"✅ Class: {CLASS_NAMES[cls]} (conf={conf:.2f})"
+    
+    prob_str = " | ".join([f"{CLASS_NAMES[i]}:{p:.2f}" for i, p in enumerate(avg_pred)])
+    print(f"\r{status} | Entropy: {entropy:.2f} | Face hits: {face_hits}/9 | Probs: [{prob_str}]", 
+          end="", flush=True)
+
 def process_buffer():
     eps = 1e-8
     while True:
@@ -206,9 +254,15 @@ def process_buffer():
 
 def live_loop():
     global last_pred, noface_streak, face_detector, det_conf
-    cap = cv2.VideoCapture(CAMERA_INDEX)
+    cap = cv2.VideoCapture(VIDEO_SOURCE)
+    if not cap.isOpened():
+        print(f"  Error: Could not open video source: {VIDEO_SOURCE}")
+        print("   Check that your camera is available or RTSP/RTMP stream URL is correct.")
+        return
     frames = []
-    print("Live prediction started. Press 'q' to quit.")
+    mode_str = "GUI" if USE_GUI else "headless"
+    quit_msg = "Press 'q' to quit." if USE_GUI else "Press Ctrl+C to quit."
+    print(f"Live prediction started ({mode_str} mode). {quit_msg}")
 
     while True:
         ret, frame = cap.read()
@@ -246,25 +300,40 @@ def live_loop():
             last_pred = prediction_queue.get()
 
         if last_pred is None:
-            cv2.putText(frame, "Warming up …", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
-            draw_bottom_status(frame, "Class: --")
+            if USE_GUI:
+                cv2.putText(frame, "Warming up …", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
+                draw_bottom_status(frame, "Class: --")
+            else:
+                print("\rWarming up...", end="", flush=True)
         else:
             cls, conf, avg_pred, entropy, face_hits = last_pred
             if (noface_streak >= NOFACE_CONSEC_FOR_UI) or isinstance(cls, str):
                 pred_history.clear()
-                draw_bottom_status(frame, "No face. Holding last prediction — Class: None")
-                cv2.putText(frame, "No face detected", (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,0,255), 2)
+                if USE_GUI:
+                    draw_bottom_status(frame, "No face. Holding last prediction — Class: None")
+                    cv2.putText(frame, "No face detected", (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,0,255), 2)
+                else:
+                    print_terminal_dashboard(cls, conf, avg_pred, entropy, face_hits)
             else:
-                draw_dashboard(frame, avg_pred, entropy, face_hits, cls)
-                draw_bottom_status(frame, f"Class: {CLASS_NAMES[cls]}")
+                if USE_GUI:
+                    draw_dashboard(frame, avg_pred, entropy, face_hits, cls)
+                    draw_bottom_status(frame, f"Class: {CLASS_NAMES[cls]}")
+                else:
+                    print_terminal_dashboard(cls, conf, avg_pred, entropy, face_hits)
 
-        cv2.imshow("Live Engagement", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        if USE_GUI:
+            cv2.imshow("Live Engagement", frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        else:
+            time.sleep(1.0 / FPS)  # Frame rate limiting for headless mode
 
     frame_queue.put(None)
     cap.release()
-    cv2.destroyAllWindows()
+    if USE_GUI:
+        cv2.destroyAllWindows()
+    else:
+        print()  # New line after terminal output
 
 if __name__ == "__main__":
     t = Thread(target=process_buffer, daemon=True); t.start()

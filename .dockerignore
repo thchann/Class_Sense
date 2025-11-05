@@ -1,0 +1,36 @@
+# Virtual environments
+tfenv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Git
+.git/
+.gitignore
+
+# Jupyter
+*.ipynb
+.ipynb_checkpoints/
+*.ipynb_checkpoints/
+
+# Build artifacts
+.dist/
+.marlin/
+
+# OS files
+.DS_Store
+*.log
+*.tmp
+
+# Large model files (exclude from image, mount at runtime)
+# models/**/*.pt
+# models/**/*.pth
+# checkpoints/**/*.keras
+
+# Data files (mount at runtime)
+# data/
+
+# Temporary files
+temp_marlin.avi
+
